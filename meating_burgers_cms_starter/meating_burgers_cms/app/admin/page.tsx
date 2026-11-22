@@ -293,7 +293,7 @@ export default function Admin() {
 
     const normalizedEmail = newEmail.trim().toLowerCase();
 
-    if (!normalizedEmail || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalizedEmail)) {
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setEmailMessage("Please enter a valid email address.");
       return;
     }
