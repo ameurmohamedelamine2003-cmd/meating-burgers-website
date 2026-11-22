@@ -45,9 +45,6 @@ export default function Admin() {
   const [passwordMessage, setPasswordMessage] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
 
-  const [newEmail, setNewEmail] = useState("");
-  const [emailMessage, setEmailMessage] = useState("");
-  const [emailBusy, setEmailBusy] = useState(false);
 
   const loadDishes = useCallback(async () => {
     const {
@@ -285,42 +282,6 @@ export default function Admin() {
     setPasswordBusy(false);
   }
 
-  async function changeOwnerEmail(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setEmailMessage("");
-
-    if (emailBusy) return;
-
-    const normalizedEmail = newEmail.trim().toLowerCase();
-
-    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setEmailMessage("Please enter a valid email address.");
-      return;
-    }
-
-    if (normalizedEmail === email.toLowerCase()) {
-      setEmailMessage("This is already the email address on your account.");
-      return;
-    }
-
-    setEmailBusy(true);
-
-    const { error } = await supabase.auth.updateUser({
-      email: normalizedEmail,
-    });
-
-    if (error) {
-      setEmailMessage(`Could not request email change: ${error.message}`);
-      setEmailBusy(false);
-      return;
-    }
-
-    setEmailMessage(
-      "Email change requested. Check your new Gmail inbox (and your current inbox if Supabase asks for both confirmations). The account email changes only after the required confirmation is completed."
-    );
-    setEmailBusy(false);
-  }
-
   async function logout() {
     await supabase.auth.signOut();
     router.push("/login");
@@ -415,47 +376,6 @@ export default function Admin() {
         {passwordMessage && (
           <p className="muted" role="status" aria-live="polite">
             {passwordMessage}
-          </p>
-        )}
-      </section>
-
-      {/* CHANGE OWNER EMAIL */}
-      <section className="panel">
-        <h2>Change Owner Email</h2>
-        <p className="muted">
-          Update the email address used to sign in to this restaurant owner account.
-        </p>
-
-        <form onSubmit={changeOwnerEmail}>
-          <div className="formgrid">
-            <div className="field full">
-              <label>Current Email</label>
-              <input type="email" value={email} readOnly />
-            </div>
-
-            <div className="field full">
-              <label>New Email Address</label>
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="meatingburgersowner@gmail.com"
-              />
-            </div>
-          </div>
-
-          <div className="toolbar" style={{ marginTop: 18 }}>
-            <button type="submit" disabled={emailBusy}>
-              {emailBusy ? "Sending confirmation..." : "Update Email"}
-            </button>
-          </div>
-        </form>
-
-        {emailMessage && (
-          <p className="muted" role="status" aria-live="polite">
-            {emailMessage}
           </p>
         )}
       </section>
