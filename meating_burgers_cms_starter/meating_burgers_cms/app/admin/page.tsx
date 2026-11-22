@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -13,9 +13,12 @@ type Dish = {
   image_url: string | null;
   category: string | null;
   is_available: boolean;
+  sort_order?: number;
 };
 
-const blank = {
+const CATEGORIES = ["Burgers", "Sides", "Drinks", "Desserts", "Specials"];
+
+const EMPTY_FORM = {
   name: "",
   description: "",
   price: "",
@@ -29,72 +32,129 @@ export default function Admin() {
   const router = useRouter();
 
   const [dishes, setDishes] = useState<Dish[]>([]);
-  const [form, setForm] = useState(blank);
-  const [editing, setEditing] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState("Loading your menu...");
   const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  async function load() {
+  const loadDishes = useCallback(async () => {
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
 
-    if (!user) {
+    if (authError || !user) {
       router.replace("/login");
       return;
     }
 
     setEmail(user.email || "");
 
-    const { data, error } = await supabase
-      .from("dishes")
-      .select("*")
-      .order("sort_order");
+    // Load dishes in batches to support large menus.
+    const all: Dish[] = [];
+    const pageSize = 500;
 
-    if (error) {
-      setMessage(error.message);
-    } else {
-      setDishes((data || []) as Dish[]);
-      setMessage("");
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("dishes")
+        .select(
+          "id,name,description,price,image_url,category,is_available,sort_order"
+        )
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        setMessage(`Could not load menu: ${error.message}`);
+        return;
+      }
+
+      all.push(...((data || []) as Dish[]));
+
+      if (!data || data.length < pageSize) {
+        break;
+      }
     }
-  }
+
+    setDishes(all);
+    setMessage("");
+  }, [router, supabase]);
 
   useEffect(() => {
-    load();
-  }, []);
+    void loadDishes();
+  }, [loadDishes]);
 
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
+    if (busy) return;
+
+    setBusy(true);
+    setMessage("");
+
     const payload = {
-      name: form.name,
-      description: form.description,
+      name: form.name.trim(),
+      description: form.description.trim() || null,
       price: Number(form.price),
-      image_url: form.image_url || null,
+      image_url: form.image_url.trim() || null,
       category: form.category,
       is_available: form.is_available,
     };
 
-    const result = editing
-      ? await supabase
-          .from("dishes")
-          .update(payload)
-          .eq("id", editing)
-      : await supabase.from("dishes").insert(payload);
-
-    if (result.error) {
-      setMessage(result.error.message);
+    if (
+      !payload.name ||
+      !Number.isFinite(payload.price) ||
+      payload.price < 0
+    ) {
+      setMessage("Please enter a dish name and a valid price.");
+      setBusy(false);
       return;
     }
 
-    setForm(blank);
-    setEditing(null);
-    setMessage("Menu saved successfully.");
-    await load();
+    let error;
+
+    if (editingId) {
+      ({ error } = await supabase
+        .from("dishes")
+        .update(payload)
+        .eq("id", editingId));
+    } else {
+      const nextOrder =
+        dishes.reduce(
+          (max, dish) => Math.max(max, dish.sort_order || 0),
+          0
+        ) + 1;
+
+      ({ error } = await supabase
+        .from("dishes")
+        .insert({ ...payload, sort_order: nextOrder }));
+    }
+
+    if (error) {
+      setMessage(`Save failed: ${error.message}`);
+      setBusy(false);
+      return;
+    }
+
+    const wasEditing = Boolean(editingId);
+
+    setForm(EMPTY_FORM);
+    setEditingId(null);
+
+    await loadDishes();
+
+    setMessage(
+      wasEditing
+        ? "Dish updated successfully."
+        : "Dish added successfully."
+    );
+
+    setBusy(false);
   }
 
-  function edit(dish: Dish) {
-    setEditing(dish.id);
+  function startEdit(dish: Dish) {
+    setEditingId(dish.id);
 
     setForm({
       name: dish.name,
@@ -105,14 +165,17 @@ export default function Admin() {
       is_available: dish.is_available,
     });
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function remove(id: string) {
-    if (!confirm("Delete this menu item?")) return;
+  async function deleteDish(id: string) {
+    if (
+      !window.confirm(
+        "Delete this menu item? This cannot be undone."
+      )
+    ) {
+      return;
+    }
 
     const { error } = await supabase
       .from("dishes")
@@ -120,10 +183,10 @@ export default function Admin() {
       .eq("id", id);
 
     if (error) {
-      setMessage(error.message);
+      setMessage(`Delete failed: ${error.message}`);
     } else {
-      setMessage("Item deleted.");
-      await load();
+      await loadDishes();
+      setMessage("Dish deleted.");
     }
   }
 
@@ -143,9 +206,7 @@ export default function Admin() {
 
           <h1>Website Dashboard</h1>
 
-          <p className="muted">
-            Signed in as {email}
-          </p>
+          <p className="muted">Signed in as {email}</p>
         </div>
 
         <div className="toolbar">
@@ -160,8 +221,8 @@ export default function Admin() {
 
           <button
             className="secondary"
-            onClick={logout}
             type="button"
+            onClick={logout}
           >
             Sign Out
           </button>
@@ -170,7 +231,7 @@ export default function Admin() {
 
       <section className="panel">
         <h2>
-          {editing ? "Edit Menu Item" : "Add a Menu Item"}
+          {editingId ? "Edit Menu Item" : "Add a Menu Item"}
         </h2>
 
         <form onSubmit={save}>
@@ -182,10 +243,7 @@ export default function Admin() {
                 required
                 value={form.name}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    name: e.target.value,
-                  })
+                  setForm({ ...form, name: e.target.value })
                 }
                 placeholder="e.g. Double Smash Burger"
               />
@@ -201,10 +259,7 @@ export default function Admin() {
                 step="0.01"
                 value={form.price}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    price: e.target.value,
-                  })
+                  setForm({ ...form, price: e.target.value })
                 }
                 placeholder="14.99"
               />
@@ -216,30 +271,23 @@ export default function Admin() {
               <select
                 value={form.category}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    category: e.target.value,
-                  })
+                  setForm({ ...form, category: e.target.value })
                 }
               >
-                <option>Burgers</option>
-                <option>Sides</option>
-                <option>Drinks</option>
-                <option>Desserts</option>
-                <option>Specials</option>
+                {CATEGORIES.map((category) => (
+                  <option key={category}>{category}</option>
+                ))}
               </select>
             </div>
 
             <div className="field">
-              <label>Image URL</label>
+              <label>Image URL (optional)</label>
 
               <input
+                type="url"
                 value={form.image_url}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    image_url: e.target.value,
-                  })
+                  setForm({ ...form, image_url: e.target.value })
                 }
                 placeholder="https://..."
               />
@@ -272,29 +320,28 @@ export default function Admin() {
                   })
                 }
               >
-                <option value="yes">
-                  Available on website
-                </option>
-
-                <option value="no">
-                  Hidden from website
-                </option>
+                <option value="yes">Available on website</option>
+                <option value="no">Hidden from website</option>
               </select>
             </div>
           </div>
 
           <div className="toolbar" style={{ marginTop: 18 }}>
-            <button type="submit">
-              {editing ? "Save Changes" : "Add to Menu"}
+            <button type="submit" disabled={busy}>
+              {busy
+                ? "Saving..."
+                : editingId
+                  ? "Save Changes"
+                  : "Add to Menu"}
             </button>
 
-            {editing && (
+            {editingId && (
               <button
                 type="button"
                 className="secondary"
                 onClick={() => {
-                  setEditing(null);
-                  setForm(blank);
+                  setEditingId(null);
+                  setForm(EMPTY_FORM);
                 }}
               >
                 Cancel
@@ -302,6 +349,12 @@ export default function Admin() {
             )}
           </div>
         </form>
+
+        {message && (
+          <p className="muted" role="status">
+            {message}
+          </p>
+        )}
       </section>
 
       <section className="panel">
@@ -310,19 +363,15 @@ export default function Admin() {
             <h2>Your Menu</h2>
 
             <p className="muted">
-              Add, edit, hide or delete dishes.
-              Changes appear on the public website.
+              No fixed item limit in the app. Add as many dishes as
+              your restaurant needs.
             </p>
           </div>
 
           <strong>{dishes.length} items</strong>
         </div>
 
-        {message && (
-          <p className="muted">{message}</p>
-        )}
-
-        {dishes.length > 0 ? (
+        {dishes.length ? (
           <div style={{ overflowX: "auto" }}>
             <table className="table">
               <thead>
@@ -339,7 +388,6 @@ export default function Admin() {
                   <tr key={dish.id}>
                     <td>
                       <strong>{dish.name}</strong>
-
                       <div className="muted">
                         {dish.category}
                       </div>
@@ -358,7 +406,7 @@ export default function Admin() {
                         <button
                           type="button"
                           className="secondary"
-                          onClick={() => edit(dish)}
+                          onClick={() => startEdit(dish)}
                         >
                           Edit
                         </button>
@@ -366,7 +414,7 @@ export default function Admin() {
                         <button
                           type="button"
                           className="danger"
-                          onClick={() => remove(dish.id)}
+                          onClick={() => void deleteDish(dish.id)}
                         >
                           Delete
                         </button>
@@ -379,16 +427,10 @@ export default function Admin() {
           </div>
         ) : (
           <p className="muted">
-            Your menu is empty. Add your first dish above.
+            No dishes yet. Add your first dish above.
           </p>
         )}
       </section>
-
-      <p className="muted">
-        Tip: Use a direct image URL for now.
-        A future version can include image uploads,
-        restaurant hours, gallery and promotions.
-      </p>
     </main>
   );
 }
