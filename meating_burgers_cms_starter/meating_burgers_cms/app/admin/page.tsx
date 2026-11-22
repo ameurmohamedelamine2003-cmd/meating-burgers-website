@@ -37,6 +37,7 @@ export default function Admin() {
   const [message, setMessage] = useState("Loading your menu...");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -87,6 +88,47 @@ export default function Admin() {
   useEffect(() => {
     void loadDishes();
   }, [loadDishes]);
+
+  async function uploadImage(file: File) {
+    setMessage("");
+
+    if (!file.type.startsWith("image/")) {
+      setMessage("Please select an image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage("Image must be 5 MB or smaller.");
+      return;
+    }
+
+    setUploadingImage(true);
+
+    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const filePath = `dishes/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("menu-images")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
+
+    if (uploadError) {
+      setMessage(`Image upload failed: ${uploadError.message}`);
+      setUploadingImage(false);
+      return;
+    }
+
+    const { data } = supabase.storage
+      .from("menu-images")
+      .getPublicUrl(filePath);
+
+    setForm((current) => ({ ...current, image_url: data.publicUrl }));
+    setMessage("Image uploaded successfully. Save the dish to keep the image.");
+    setUploadingImage(false);
+  }
 
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -385,7 +427,23 @@ export default function Admin() {
             </div>
 
             <div className="field">
-              <label>Image URL (optional)</label>
+              <label>Upload Dish Image (optional)</label>
+              <input
+                type="file"
+                accept="image/*"
+                disabled={uploadingImage}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadImage(file);
+                  e.currentTarget.value = "";
+                }}
+              />
+              <p className="muted">
+                {uploadingImage
+                  ? "Uploading image..."
+                  : "Choose an image from your device (maximum 5 MB)."}
+              </p>
+              <label>Or paste an Image URL</label>
               <input
                 type="url"
                 value={form.image_url}
@@ -394,6 +452,20 @@ export default function Admin() {
                 }
                 placeholder="https://..."
               />
+              {form.image_url && (
+                <img
+                  src={form.image_url}
+                  alt="Dish preview"
+                  style={{
+                    display: "block",
+                    width: "120px",
+                    height: "90px",
+                    objectFit: "cover",
+                    borderRadius: "8px",
+                    marginTop: "10px",
+                  }}
+                />
+              )}
             </div>
 
             <div className="field full">
