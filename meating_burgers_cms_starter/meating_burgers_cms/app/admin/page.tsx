@@ -38,6 +38,12 @@ export default function Admin() {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
+
   const loadDishes = useCallback(async () => {
     const {
       data: { user },
@@ -51,7 +57,6 @@ export default function Admin() {
 
     setEmail(user.email || "");
 
-    // Load menu in batches to support large menus.
     const all: Dish[] = [];
     const pageSize = 500;
 
@@ -182,6 +187,58 @@ export default function Admin() {
     }
   }
 
+  async function changePassword(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setPasswordMessage("");
+
+    if (passwordBusy) return;
+
+    if (newPassword.length < 8) {
+      setPasswordMessage("The new password must be at least 8 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage("The new passwords do not match.");
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      setPasswordMessage("Choose a password different from the current one.");
+      return;
+    }
+
+    setPasswordBusy(true);
+
+    const { error: signInError } =
+      await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+
+    if (signInError) {
+      setPasswordMessage("The current password is incorrect.");
+      setPasswordBusy(false);
+      return;
+    }
+
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (error) {
+      setPasswordMessage(`Could not change password: ${error.message}`);
+      setPasswordBusy(false);
+      return;
+    }
+
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordMessage("Password changed successfully.");
+    setPasswordBusy(false);
+  }
+
   async function logout() {
     await supabase.auth.signOut();
     router.push("/login");
@@ -220,6 +277,67 @@ export default function Admin() {
         </div>
       </header>
 
+      {/* CHANGE PASSWORD */}
+      <section className="panel">
+        <h2>Change Password</h2>
+
+        <p className="muted">
+          Update the password for this restaurant owner account.
+        </p>
+
+        <form onSubmit={changePassword}>
+          <div className="formgrid">
+            <div className="field full">
+              <label>Current Password</label>
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>New Password</label>
+              <input
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>Confirm New Password</label>
+              <input
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="toolbar" style={{ marginTop: 18 }}>
+            <button type="submit" disabled={passwordBusy}>
+              {passwordBusy ? "Changing..." : "Update Password"}
+            </button>
+          </div>
+        </form>
+
+        {passwordMessage && (
+          <p className="muted" role="status" aria-live="polite">
+            {passwordMessage}
+          </p>
+        )}
+      </section>
+
+      {/* ADD OR EDIT DISH */}
       <section className="panel">
         <h2>{editingId ? "Edit Menu Item" : "Add a Menu Item"}</h2>
 
@@ -337,6 +455,7 @@ export default function Admin() {
         )}
       </section>
 
+      {/* MENU LIST */}
       <section className="panel">
         <div className="adminhead">
           <div>
