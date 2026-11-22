@@ -37,6 +37,7 @@ export default function Admin() {
   const [message, setMessage] = useState("Loading your menu...");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const loadDishes = useCallback(async () => {
     const {
@@ -51,7 +52,6 @@ export default function Admin() {
 
     setEmail(user.email || "");
 
-    // Load dishes in batches to support large menus.
     const all: Dish[] = [];
     const pageSize = 500;
 
@@ -72,9 +72,7 @@ export default function Admin() {
 
       all.push(...((data || []) as Dish[]));
 
-      if (!data || data.length < pageSize) {
-        break;
-      }
+      if (!data || data.length < pageSize) break;
     }
 
     setDishes(all);
@@ -85,10 +83,63 @@ export default function Admin() {
     void loadDishes();
   }, [loadDishes]);
 
+  async function uploadImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setMessage("");
+
+    if (!file.type.startsWith("image/")) {
+      setMessage("Please select an image file.");
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage("Image is too large. Maximum size is 5 MB.");
+      e.target.value = "";
+      return;
+    }
+
+    setUploading(true);
+    setMessage("Uploading image...");
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const filePath = `menu/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("menu-images")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
+
+    if (uploadError) {
+      setMessage(`Image upload failed: ${uploadError.message}`);
+      setUploading(false);
+      e.target.value = "";
+      return;
+    }
+
+    const { data } = supabase.storage
+      .from("menu-images")
+      .getPublicUrl(filePath);
+
+    setForm((current) => ({
+      ...current,
+      image_url: data.publicUrl,
+    }));
+
+    setMessage("Image uploaded successfully.");
+    setUploading(false);
+    e.target.value = "";
+  }
+
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (busy) return;
+    if (busy || uploading) return;
 
     setBusy(true);
     setMessage("");
@@ -170,9 +221,7 @@ export default function Admin() {
 
   async function deleteDish(id: string) {
     if (
-      !window.confirm(
-        "Delete this menu item? This cannot be undone."
-      )
+      !window.confirm("Delete this menu item? This cannot be undone.")
     ) {
       return;
     }
@@ -205,7 +254,6 @@ export default function Admin() {
           </a>
 
           <h1>Website Dashboard</h1>
-
           <p className="muted">Signed in as {email}</p>
         </div>
 
@@ -230,15 +278,12 @@ export default function Admin() {
       </header>
 
       <section className="panel">
-        <h2>
-          {editingId ? "Edit Menu Item" : "Add a Menu Item"}
-        </h2>
+        <h2>{editingId ? "Edit Menu Item" : "Add a Menu Item"}</h2>
 
         <form onSubmit={save}>
           <div className="formgrid">
             <div className="field">
               <label>Dish name *</label>
-
               <input
                 required
                 value={form.name}
@@ -251,7 +296,6 @@ export default function Admin() {
 
             <div className="field">
               <label>Price (USD) *</label>
-
               <input
                 required
                 type="number"
@@ -267,7 +311,6 @@ export default function Admin() {
 
             <div className="field">
               <label>Category</label>
-
               <select
                 value={form.category}
                 onChange={(e) =>
@@ -281,8 +324,20 @@ export default function Admin() {
             </div>
 
             <div className="field">
-              <label>Image URL (optional)</label>
+              <label>Upload Dish Image</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={uploadImage}
+                disabled={uploading}
+              />
+              <small className="muted">
+                Choose an image from your device. Maximum 5 MB.
+              </small>
+            </div>
 
+            <div className="field full">
+              <label>Or paste an Image URL</label>
               <input
                 type="url"
                 value={form.image_url}
@@ -293,9 +348,24 @@ export default function Admin() {
               />
             </div>
 
+            {form.image_url && (
+              <div className="field full">
+                <label>Image Preview</label>
+                <img
+                  src={form.image_url}
+                  alt="Dish preview"
+                  style={{
+                    width: "220px",
+                    height: "150px",
+                    objectFit: "cover",
+                    borderRadius: "12px",
+                  }}
+                />
+              </div>
+            )}
+
             <div className="field full">
               <label>Description</label>
-
               <textarea
                 value={form.description}
                 onChange={(e) =>
@@ -310,7 +380,6 @@ export default function Admin() {
 
             <div className="field">
               <label>Availability</label>
-
               <select
                 value={form.is_available ? "yes" : "no"}
                 onChange={(e) =>
@@ -327,12 +396,14 @@ export default function Admin() {
           </div>
 
           <div className="toolbar" style={{ marginTop: 18 }}>
-            <button type="submit" disabled={busy}>
-              {busy
-                ? "Saving..."
-                : editingId
-                  ? "Save Changes"
-                  : "Add to Menu"}
+            <button type="submit" disabled={busy || uploading}>
+              {uploading
+                ? "Uploading image..."
+                : busy
+                  ? "Saving..."
+                  : editingId
+                    ? "Save Changes"
+                    : "Add to Menu"}
             </button>
 
             {editingId && (
@@ -361,10 +432,8 @@ export default function Admin() {
         <div className="adminhead">
           <div>
             <h2>Your Menu</h2>
-
             <p className="muted">
-              No fixed item limit in the app. Add as many dishes as
-              your restaurant needs.
+              Add as many dishes as your restaurant needs.
             </p>
           </div>
 
@@ -388,14 +457,10 @@ export default function Admin() {
                   <tr key={dish.id}>
                     <td>
                       <strong>{dish.name}</strong>
-                      <div className="muted">
-                        {dish.category}
-                      </div>
+                      <div className="muted">{dish.category}</div>
                     </td>
 
-                    <td>
-                      ${Number(dish.price).toFixed(2)}
-                    </td>
+                    <td>${Number(dish.price).toFixed(2)}</td>
 
                     <td>
                       {dish.is_available ? "Visible" : "Hidden"}
