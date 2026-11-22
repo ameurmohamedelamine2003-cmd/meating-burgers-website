@@ -37,7 +37,6 @@ export default function Admin() {
   const [message, setMessage] = useState("Loading your menu...");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
 
   const loadDishes = useCallback(async () => {
     const {
@@ -52,6 +51,7 @@ export default function Admin() {
 
     setEmail(user.email || "");
 
+    // Load menu in batches to support large menus.
     const all: Dish[] = [];
     const pageSize = 500;
 
@@ -83,63 +83,10 @@ export default function Admin() {
     void loadDishes();
   }, [loadDishes]);
 
-  async function uploadImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setMessage("");
-
-    if (!file.type.startsWith("image/")) {
-      setMessage("Please select an image file.");
-      e.target.value = "";
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage("Image is too large. Maximum size is 5 MB.");
-      e.target.value = "";
-      return;
-    }
-
-    setUploading(true);
-    setMessage("Uploading image...");
-
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const filePath = `menu/${Date.now()}-${safeName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("menu-images")
-      .upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type,
-      });
-
-    if (uploadError) {
-      setMessage(`Image upload failed: ${uploadError.message}`);
-      setUploading(false);
-      e.target.value = "";
-      return;
-    }
-
-    const { data } = supabase.storage
-      .from("menu-images")
-      .getPublicUrl(filePath);
-
-    setForm((current) => ({
-      ...current,
-      image_url: data.publicUrl,
-    }));
-
-    setMessage("Image uploaded successfully.");
-    setUploading(false);
-    e.target.value = "";
-  }
-
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (busy || uploading) return;
+    if (busy) return;
 
     setBusy(true);
     setMessage("");
@@ -188,15 +135,13 @@ export default function Admin() {
       return;
     }
 
-    const wasEditing = Boolean(editingId);
-
     setForm(EMPTY_FORM);
     setEditingId(null);
 
     await loadDishes();
 
     setMessage(
-      wasEditing
+      editingId
         ? "Dish updated successfully."
         : "Dish added successfully."
     );
@@ -220,9 +165,7 @@ export default function Admin() {
   }
 
   async function deleteDish(id: string) {
-    if (
-      !window.confirm("Delete this menu item? This cannot be undone.")
-    ) {
+    if (!window.confirm("Delete this menu item? This cannot be undone.")) {
       return;
     }
 
@@ -324,20 +267,7 @@ export default function Admin() {
             </div>
 
             <div className="field">
-              <label>Upload Dish Image</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={uploadImage}
-                disabled={uploading}
-              />
-              <small className="muted">
-                Choose an image from your device. Maximum 5 MB.
-              </small>
-            </div>
-
-            <div className="field full">
-              <label>Or paste an Image URL</label>
+              <label>Image URL (optional)</label>
               <input
                 type="url"
                 value={form.image_url}
@@ -348,31 +278,12 @@ export default function Admin() {
               />
             </div>
 
-            {form.image_url && (
-              <div className="field full">
-                <label>Image Preview</label>
-                <img
-                  src={form.image_url}
-                  alt="Dish preview"
-                  style={{
-                    width: "220px",
-                    height: "150px",
-                    objectFit: "cover",
-                    borderRadius: "12px",
-                  }}
-                />
-              </div>
-            )}
-
             <div className="field full">
               <label>Description</label>
               <textarea
                 value={form.description}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    description: e.target.value,
-                  })
+                  setForm({ ...form, description: e.target.value })
                 }
                 placeholder="Describe the dish and ingredients"
               />
@@ -396,14 +307,12 @@ export default function Admin() {
           </div>
 
           <div className="toolbar" style={{ marginTop: 18 }}>
-            <button type="submit" disabled={busy || uploading}>
-              {uploading
-                ? "Uploading image..."
-                : busy
-                  ? "Saving..."
-                  : editingId
-                    ? "Save Changes"
-                    : "Add to Menu"}
+            <button type="submit" disabled={busy}>
+              {busy
+                ? "Saving..."
+                : editingId
+                ? "Save Changes"
+                : "Add to Menu"}
             </button>
 
             {editingId && (
@@ -433,7 +342,8 @@ export default function Admin() {
           <div>
             <h2>Your Menu</h2>
             <p className="muted">
-              Add as many dishes as your restaurant needs.
+              No fixed item limit in the app. Add as many dishes as your
+              restaurant needs.
             </p>
           </div>
 
