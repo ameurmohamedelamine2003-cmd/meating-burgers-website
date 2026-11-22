@@ -46,7 +46,6 @@ export default async function Home() {
   try {
     const supabase = await createClient();
 
-    // Load the complete menu in batches of 500.
     const all: Dish[] = [];
     const pageSize = 500;
 
@@ -82,7 +81,6 @@ export default async function Home() {
     console.error("Could not load restaurant content", error);
   }
 
-  // Preview menu displayed only when the database has no dishes.
   const sample: Dish[] = [
     {
       id: "sample1",
@@ -107,8 +105,7 @@ export default async function Home() {
     {
       id: "sample3",
       name: "Crispy Fries",
-      description:
-        "Golden crispy fries, seasoned and served hot.",
+      description: "Golden crispy fries, seasoned and served hot.",
       price: 5.5,
       image_url: null,
       category: "Sides",
@@ -136,15 +133,12 @@ export default async function Home() {
 
   const menu = dishes.length ? dishes : sample;
 
-  // Group dishes by their category.
-  const grouped = CATEGORIES
-    .map((category) => ({
-      category,
-      items: menu.filter(
-        (dish) => (dish.category || "Burgers") === category
-      ),
-    }))
-    .filter((group) => group.items.length > 0);
+  const grouped = CATEGORIES.map((category) => ({
+    category,
+    items: menu.filter(
+      (dish) => (dish.category || "Burgers") === category
+    ),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <main>
@@ -176,8 +170,8 @@ export default async function Home() {
             </h1>
 
             <p>
-              Made for big appetites and good company. Find your
-              next favorite meal, made fresh and served with attitude.
+              Made for big appetites and good company. Find your next
+              favorite meal, made fresh and served with attitude.
             </p>
 
             <div className="actions">
@@ -247,15 +241,17 @@ export default async function Home() {
                         </span>
                       </div>
 
-                      <p className="muted">
-                        {dish.description}
-                      </p>
+                      {dish.description && (
+                        <p className="muted">
+                          {dish.description}
+                        </p>
+                      )}
                     </div>
                   </article>
                 ))}
               </div>
             </section>
-          ))}
+          )}
 
           {!dishes.length && (
             <p className="muted">
